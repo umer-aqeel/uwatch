@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VidFast Embed</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        const OMDB_API_KEY = 'cdf0051a'; // Replace with your OMDB API key
+        let selectedSeriesId = '';
+        let totalSeasons = 0;
+        let searchTimeout;
+
+        function handleSearchInput() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(searchIMDb, 300);
+        }
+
+        async function searchIMDb() {
+            const query = document.getElementById('searchQuery').value.trim();
+            const resultsContainer = document.getElementById('searchResults');
+            if (!query) {
+                resultsContainer.innerHTML = ''; 
+                return;
+            }
+
+            try {
+                const response = await fetch(`https://www.omdbapi.com/?s=${query}&apikey=${OMDB_API_KEY}`);
+                const data = await response.json();
+                resultsContainer.innerHTML = '';
+
+                if (data.Search) {
+                    data.Search.forEach(item => {
+                        const resultDiv = document.createElement('div');
+                        resultDiv.classList = "flex items-center space-x-4 p-2 bg-gray-700 hover:bg-gray-600 rounded cursor-pointer";
+                        resultDiv.onclick = () => fillID(item.imdbID, item.Type);
+
+                        const img = document.createElement('img');
+                        img.src = item.Poster !== "N/A" ? item.Poster : "https://via.placeholder.com/50";
+                        img.classList = "w-10 h-14 rounded";
+
+                        const textDiv = document.createElement('div');
+                        textDiv.textContent = `${item.Title} (${item.Year})`;
+
+                        resultDiv.appendChild(img);
+                        resultDiv.appendChild(textDiv);
+                        resultsContainer.appendChild(resultDiv);
+                    });
+                } else {
+                    resultsContainer.innerHTML = '<p class="text-red-500">No results found.</p>';
+                }
+            } catch (error) {
+                console.error("Error fetching search results:", error);
+            }
+        }
+
+        function fillID(imdbID, type) {
+            document.getElementById('searchResults').innerHTML = '';
+
+            if (type === 'movie') {
+                document.getElementById('videoFrame').src = `https://vidfast.pro/movie/${imdbID}?autoPlay=true`;
+                document.getElementById('seriesControls').classList.add('hidden');
+            } else if (type === 'series') {
+                selectedSeriesId = imdbID;
+                document.getElementById('seriesControls').classList.remove('hidden');
+                fetchSeasons(imdbID);
+            }
+        }
+
+        async function fetchSeasons(imdbID) {
+            try {
+                const response = await fetch(`https://www.omdbapi.com/?i=${imdbID}&apikey=${OMDB_API_KEY}`);
+                const data = await response.json();
+
+                if (data.totalSeasons) {
+                    totalSeasons = parseInt(data.totalSeasons);
+                    const seasonSelect = document.getElementById('season');
+                    seasonSelect.innerHTML = '<option value="">Select Season</option>';
+
+                    for (let i = 1; i <= totalSeasons; i++) {
+                        const option = document.createElement('option');
+                        option.value = i;
+                        option.textContent = `Season ${i}`;
+                        seasonSelect.appendChild(option);
+                    }
+                }
+            } catch (error) {
+                console.error("Error fetching seasons:", error);
+            }
+        }
+
+        async function fetchEpisodes() {
+            const season = document.getElementById('season').value;
+            if (!season) return;
+
+            try {
+                const response = await fetch(`https://www.omdbapi.com/?i=${selectedSeriesId}&Season=${season}&apikey=${OMDB_API_KEY}`);
+                const data = await response.json();
+
+                if (data.Episodes) {
+                    const episodeSelect = document.getElementById('episode');
+                    episodeSelect.innerHTML = '<option value="">Select Episode</option>';
+
+                    data.Episodes.forEach((ep, index) => {
+                        const option = document.createElement('option');
+                        option.value = index + 1;
+                        option.textContent = `Episode ${index + 1}`;
+                        episodeSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error("Error fetching episodes:", error);
+            }
+        }
+
+        function embedSeries() {
+            const season = document.getElementById('season').value;
+            const episode = document.getElementById('episode').value;
+            if (selectedSeriesId && season && episode) {
+                document.getElementById('videoFrame').src = `https://vidfast.pro/tv/${selectedSeriesId}/${season}/${episode}?autoPlay=true`;
+            }
+        }
+
+        // Fullscreen and orientation handling
+        function handleFullscreenChange() {
+            const iframe = document.getElementById('videoFrame');
+            const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+            
+            if (isFullscreen) {
+                // Try locking to landscape (supports both left/right via sensor)
+                if (screen.orientation && screen.orientation.lock) {
+                    screen.orientation.lock('landscape')
+                        .then(() => console.log("Orientation locked to landscape"))
+                        .catch(e => {
+                            console.log("Orientation lock failed:", e);
+                            showRotatePrompt();
+                        });
+                } else {
+                    showRotatePrompt();
+                }
+            } else {
+                // Unlock orientation when exiting fullscreen
+                if (screen.orientation && screen.orientation.unlock) {
+                    screen.orientation.unlock();
+                }
+                hideRotatePrompt();
+            }
+        }
+
+        function showRotatePrompt() {
+            const prompt = document.getElementById('rotatePrompt');
+            if (prompt) prompt.classList.remove('hidden');
+        }
+
+        function hideRotatePrompt() {
+            const prompt = document.getElementById('rotatePrompt');
+            if (prompt) prompt.classList.add('hidden');
+        }
+
+        // Initialize event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            // Fullscreen change listeners
+            document.addEventListener('fullscreenchange', handleFullscreenChange);
+            document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+            
+            // Optional: Click to enter fullscreen
+            document.getElementById('videoFrame').addEventListener('click', () => {
+                const iframe = document.getElementById('videoFrame');
+                if (iframe.requestFullscreen) {
+                    iframe.requestFullscreen();
+                } else if (iframe.webkitRequestFullscreen) {
+                    iframe.webkitRequestFullscreen();
+                }
+            });
+        });
+
+        // Security measures
+        window.open = function() { return null; };
+        window.onbeforeunload = function() { return "Are you sure you want to leave?"; };
+        document.addEventListener('click', function(event) {
+            if (event.target.tagName === 'IFRAME' || event.target.closest('iframe')) {
+                event.stopPropagation();
+                event.preventDefault();
+            }
+        }, true);
+    </script>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-3xl mb-4 relative">
+        <input 
+            type="text" 
+            id="searchQuery" 
+            placeholder="Search Movie or Series" 
+            class="w-full p-2 text-black rounded mb-2" 
+            oninput="handleSearchInput()"/>
+        <div id="searchResults" class="absolute w-full bg-gray-800 z-10 mt-1 rounded shadow-lg max-h-56 overflow-y-auto"></div>
+    </div>
+
+    <div id="seriesControls" class="w-full max-w-3xl mb-4 hidden flex space-x-2">
+        <select id="season" class="w-1/2 p-2 text-black rounded" onchange="fetchEpisodes()">
+            <option value="">Season</option>
+        </select>
+        <select id="episode" class="w-1/2 p-2 text-black rounded" onchange="embedSeries()">
+            <option value="">Episode</option>
+        </select>
+    </div>
+
+    <div class="relative w-full max-w-3xl h-[65vh]">
+        <iframe
+            id="videoFrame"
+            src="https://vidfast.pro/movie/533535?autoPlay=true"
+            class="absolute top-0 left-0 w-full h-full rounded-lg shadow-xl"
+            frameborder="0"
+            allowfullscreen
+            allow="accelerometer; autoplay; encrypted-media; gyroscope; fullscreen"
+            sandbox="allow-scripts allow-same-origin allow-presentation">
+        </iframe>
+    </div>
+
+    <!-- iOS Rotation Prompt (hidden by default) -->
+    <div id="rotatePrompt" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center">
+        <div class="text-center p-4 bg-gray-800 rounded-lg max-w-xs">
+            <p class="mb-3">For the best experience, rotate your device to landscape mode.</p>
+            <button onclick="hideRotatePrompt()" class="px-4 py-2 bg-blue-600 rounded">
+                OK, I'll rotate manually
+            </button>
+        </div>
+    </div>
+</body>
+</html>
